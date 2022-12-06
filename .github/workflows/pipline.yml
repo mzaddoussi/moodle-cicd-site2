@@ -1,0 +1,91 @@
+# Copyright 2022 Google LLC t
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+on:
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: "Log level"
+        required: true
+        default: "warning"
+        type: choice
+        options:
+          - info
+          - warning
+          - debug
+      tags:
+        description: "Test scenario tags"
+        required: false
+        type: boolean
+  push:
+    branches:
+      - "dev"
+name: "Connect to GCP instance via ssh and execute a command"
+env:
+  ZONE: "northamerica-northeast1-a"
+  GIT_PROJECT: "moodle-cicd-site2"
+  GIT_HOME: "mzaddoussi"
+jobs:
+  #build-test:
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: tests
+  #      uses: joelwmale/codeception-action@master
+  ssh:
+    runs-on: "ubuntu-latest"
+    #needs:  build-test
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: "Get branch name"
+        id: branch-name
+        uses: tj-actions/branch-names@v6
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+      # Configure Workload Identity Federation and generate an access token.
+      - name: "Authenticate to Google Cloud"
+        id: "auth"
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: "${{ secrets.GOOGLE_CREDENTIALS }}"
+      - name: "SSH to GCP instance DEV"
+        id: "deployement-dev"
+        #if: ${{ steps.branch-name.outputs.current_branch != 'prod' }}
+        uses: google-github-actions/ssh-compute@v0
+        with:
+          instance_name: "dev-moodle2-instance"
+          zone: "${{ env.ZONE }}"
+          #user: "mzaddoussi@dev-moodle2-instance"
+          ssh_private_key: "${{secrets.SSH_PRIVATE_KEY_DEV}}"
+          command: |-
+            FILE=/var/www/html/moodle/README.txt
+            if test -f "$FILE"; then
+              cd /var/www/html/moodle
+              sudo git pull
+            else
+              cd /var/www/html
+              sudo rm -rf {,.[!.],..?}*
+              sudo git clone https://github.com/moodle/moodle.git
+              cd moodle
+              sudo git checkout -t origin/MOODLE_39_STABLE
+            fi
+
+            git config --global --add safe.directory /var/www/html/moodle
+            sudo chown www-data:www-data /var/www/html -R
+            echo "Deployment on ${{steps.branch-name.outputs.current_branch}} completed"
+      - name: "Show Output"
+        run: |-
+          echo 'Branch: ${{ steps.branch-name.outputs.current_branch  }}'
+          echo '${{ steps.deployement-dev.outputs.stdout }}'
+          echo '${{ steps.deployement-dev.outputs.stderr }}'
